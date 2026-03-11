@@ -1,4 +1,4 @@
-﻿// --------------------------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 // <copyright file="ScsCrypto.cs" company="Swisscom AG">
 //   Copyright (c) 2025
 // </copyright>
@@ -63,17 +63,18 @@ namespace Swisscom.ConfigMgr.Library.Util
         /// <returns>The hashed text.</returns>
         public static string CreateSha512Hash(string text, int rounds)
         {
-            var shaHasher = new SHA512Managed();
-            shaHasher.Initialize();
-            var hashedText = text;
-            for (var i = 0; i <= rounds; i++)
+            using (var shaHasher = SHA512.Create())
             {
-                hashedText = new StringBuilder(_defaultSalt + hashedText).ToString();
-                var hashedBytes = shaHasher.ComputeHash(Encoding.UTF8.GetBytes(hashedText));
-                hashedText = Convert.ToBase64String(hashedBytes);
-            }
+                var hashedText = text;
+                for (var i = 0; i <= rounds; i++)
+                {
+                    hashedText = _defaultSalt + hashedText;
+                    var hashedBytes = shaHasher.ComputeHash(Encoding.UTF8.GetBytes(hashedText));
+                    hashedText = Convert.ToBase64String(hashedBytes);
+                }
 
-            return hashedText;
+                return hashedText;
+            }
         }
 
         /// <summary>
@@ -85,23 +86,25 @@ namespace Swisscom.ConfigMgr.Library.Util
         public string Encrypt(string text)
         {
             string encryptedText;
-            var rijndael = new RijndaelManaged();
-            rijndael.Key = this._key;
-            rijndael.GenerateIV();
-            var byteIv = rijndael.IV;
-            using (var memoryStream = new MemoryStream())
+            using (var aes = Aes.Create())
             {
-                memoryStream.Write(byteIv, 0, byteIv.Length);
-                using (var cryptoStream = new CryptoStream(memoryStream, rijndael.CreateEncryptor(), CryptoStreamMode.Write))
+                aes.Key = this._key;
+                aes.GenerateIV();
+                var byteIv = aes.IV;
+                using (var memoryStream = new MemoryStream())
                 {
-                    cryptoStream.Write(Encoding.UTF8.GetBytes(text), 0, Encoding.UTF8.GetBytes(text).Length);
-                    cryptoStream.FlushFinalBlock();
-                    var output = memoryStream.ToArray();
-                    encryptedText = Convert.ToBase64String(output);
+                    memoryStream.Write(byteIv, 0, byteIv.Length);
+                    using (var cryptoStream = new CryptoStream(memoryStream, aes.CreateEncryptor(), CryptoStreamMode.Write))
+                    {
+                        var plainBytes = Encoding.UTF8.GetBytes(text);
+                        cryptoStream.Write(plainBytes, 0, plainBytes.Length);
+                        cryptoStream.FlushFinalBlock();
+                        var output = memoryStream.ToArray();
+                        encryptedText = Convert.ToBase64String(output);
+                    }
                 }
             }
 
-            rijndael.Clear();
             return encryptedText;
         }
 
@@ -114,32 +117,30 @@ namespace Swisscom.ConfigMgr.Library.Util
         public string Decrypt(string text)
         {
             string decryptedText;
-            var rijndael = new RijndaelManaged();
-
             var encryptedBytes = Convert.FromBase64String(text);
 
             var iv = new byte[16];
             Array.Copy(encryptedBytes, 0, iv, 0, 16);
 
             var cipherTextLength = encryptedBytes.Length - 16;
-            var cipherText = new byte[encryptedBytes.Length - 16];
+            var cipherText = new byte[cipherTextLength];
             Array.Copy(encryptedBytes, 16, cipherText, 0, cipherTextLength);
 
-            rijndael.IV = iv;
-            rijndael.Key = this._key;
-            rijndael.Mode = CipherMode.CBC;
-            rijndael.Padding = PaddingMode.PKCS7;
-            using (var decryptor = rijndael.CreateDecryptor())
-            using (var memoryStream = new MemoryStream(cipherText))
-            using (var cryptoStream = new CryptoStream(memoryStream, decryptor, CryptoStreamMode.Read))
+            using (var aes = Aes.Create())
             {
+                aes.IV = iv;
+                aes.Key = this._key;
+                aes.Mode = CipherMode.CBC;
+                aes.Padding = PaddingMode.PKCS7;
+                using (var decryptor = aes.CreateDecryptor())
+                using (var memoryStream = new MemoryStream(cipherText))
+                using (var cryptoStream = new CryptoStream(memoryStream, decryptor, CryptoStreamMode.Read))
                 using (var streamReader = new StreamReader(cryptoStream, Encoding.UTF8))
                 {
                     decryptedText = streamReader.ReadToEnd();
                 }
             }
 
-            rijndael.Clear();
             return decryptedText;
         }
 
@@ -151,19 +152,20 @@ namespace Swisscom.ConfigMgr.Library.Util
         /// <returns>The key as a byte array.</returns>
         private static byte[] CreateKey(string key)
         {
-            var shaHasher = new SHA256Managed();
-            var salt = Encoding.UTF8.GetBytes(_defaultSalt.ToString());
-            var byteKey = Encoding.UTF8.GetBytes(key.ToUpper());
-            for (var i = 0; i <= 10000; i++)
+            using (var shaHasher = SHA256.Create())
             {
-                var byteTemporaryKey = new byte[byteKey.Length + salt.Length];
-                Buffer.BlockCopy(byteKey, 0, byteTemporaryKey, 0, byteKey.Length);
-                Buffer.BlockCopy(salt, 0, byteTemporaryKey, byteKey.Length, salt.Length);
-                byteKey = shaHasher.ComputeHash(byteTemporaryKey);
-            }
+                var salt = Encoding.UTF8.GetBytes(_defaultSalt);
+                var byteKey = Encoding.UTF8.GetBytes(key.ToUpper());
+                for (var i = 0; i <= 10000; i++)
+                {
+                    var byteTemporaryKey = new byte[byteKey.Length + salt.Length];
+                    Buffer.BlockCopy(byteKey, 0, byteTemporaryKey, 0, byteKey.Length);
+                    Buffer.BlockCopy(salt, 0, byteTemporaryKey, byteKey.Length, salt.Length);
+                    byteKey = shaHasher.ComputeHash(byteTemporaryKey);
+                }
 
-            shaHasher.Clear();
-            return byteKey;
+                return byteKey;
+            }
         }
     }
 }

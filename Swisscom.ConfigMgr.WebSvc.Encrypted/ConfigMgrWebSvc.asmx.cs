@@ -65,6 +65,9 @@
         {
             try
             {
+                ParameterValidator.ValidateComputerName(computerName);
+                ParameterValidator.ValidateGuid(biosGuid);
+
                 this.WriteLogMessage(SeverityTypes.Information, $"Add a new computer with name \"{computerName}\" and bios guid \"{biosGuid}\".");
                 this.WriteLogMessage(SeverityTypes.Information, $"Verifying if a computer with bios guid \"{biosGuid}\" already exists.");
 
@@ -92,6 +95,8 @@
                         this.WriteLogMessage(SeverityTypes.Information, $"Add new computer with name \"{computerName}\" and bios guid \"{biosGuid}\" returned ResourceID \"{resourceId}\".");
 
                         // Wait for ConfigMgr to initialize the new resource
+                        // NOTE: Thread.Sleep blocks the thread pool thread. Consider replacing with
+                        // a polling mechanism that checks if the resource is ready.
                         System.Threading.Thread.Sleep(3000);
 
                         // Send DDR record with AD information if available
@@ -172,6 +177,9 @@
         {
             try
             {
+                ParameterValidator.ValidateComputerName(computerName);
+                ParameterValidator.ValidateUserName(userName);
+
                 var user = string.Format("{0}\\\\{1}", this._configHandler.DomainShortName, userName);
                 this.WriteLogMessage(SeverityTypes.Information, $"Trying to add the user \"{user}\" on \"{computerName}\"");
                 this._configMgrUtility.SetPrimaryUser(computerName, user, ConfigMgrUtility.DeviceAffinityTypes.Administrator);
@@ -262,26 +270,33 @@
             string userName,
             string timestamp)
         {
-            string connectionString = "Provider=SQLOLEDB.1;Server=SCBSSQLDAP02;database=DAPDWH;User ID=DAP;Password=DAP;";
-            string sqlQuery = $"EXEC [DWH].[sp_Add_FirstLogon] @Device = N'{computerName}', @UserID = N'{userName}'";
+            string connectionString = System.Configuration.ConfigurationManager.ConnectionStrings["DapDwhConnection"]?.ConnectionString;
+            if (string.IsNullOrEmpty(connectionString))
+            {
+                this.WriteLogMessage(SeverityTypes.Error, "DapDwhConnection connection string is not configured in web.config.");
+                return SoapResponseHelper.Failure<object>("Database connection is not configured.");
+            }
 
             try
             {
                 using (var connection = new System.Data.OleDb.OleDbConnection(connectionString))
                 {
                     connection.Open();
-                    using (var command = new System.Data.OleDb.OleDbCommand(sqlQuery, connection))
+                    using (var command = new System.Data.OleDb.OleDbCommand("[DWH].[sp_Add_FirstLogon]", connection))
                     {
+                        command.CommandType = System.Data.CommandType.StoredProcedure;
+                        command.Parameters.AddWithValue("@Device", computerName);
+                        command.Parameters.AddWithValue("@UserID", userName);
                         command.ExecuteNonQuery();
                     }
                 }
-                this.WriteLogMessage(SeverityTypes.Information, $"Successfully registered first login for {computerName} - {userName}.");                
+                this.WriteLogMessage(SeverityTypes.Information, $"Successfully registered first login for {computerName} - {userName}.");
                 return SoapResponseHelper.Success<object>();
             }
             catch (Exception ex)
             {
                 this.WriteLogMessage(SeverityTypes.Error, $"Error registering first login for {computerName} - {userName}: {ex.Message}");
-                this.WriteLogMessage(SeverityTypes.Error, $"Full Stack Trace: {ex.StackTrace}");                
+                this.WriteLogMessage(SeverityTypes.Error, $"Full Stack Trace: {ex.StackTrace}");
                 return SoapResponseHelper.Failure<object>(ex.Message);
             }
         }
@@ -311,33 +326,8 @@
         }
 
 
-        [WebMethod(Description = "Removes a computer from a OSD collection in ConfigMgr.")]
-        [SoapDocumentMethod(ParameterStyle = SoapParameterStyle.Wrapped)]
-        public GenericSoapResponse<object> RemoveComputerFromOSDCollection(
-            string computerName,
-            string advertisementId,
-            string timestamp)
-        {
-            try
-            {
-                this.WriteLogMessage(SeverityTypes.Information, $"Remove computer \"{computerName}\" from OSD collection based on AdvertisementID \"{advertisementId}\".");
-                var advertisement = this._configMgrUtility.GetAdvertisement(advertisementId);
-                if (advertisement == null)
-                    throw new Exception($"Advertisement with ID \"{advertisementId}\" not found.");
-
-                string collectionId = advertisement.CollectionId;
-                this._configMgrUtility.RemoveMemberFromCollectionDirectByName(collectionId, computerName);
-
-                this.WriteLogMessage(SeverityTypes.Information, $"Successfully removed computer \"{computerName}\" from collection \"{collectionId}\".");                
-                return SoapResponseHelper.Success<object>();
-            }
-            catch (Exception ex)
-            {
-                this.WriteLogMessage(SeverityTypes.Error, $"Removing computer \"{computerName}\" from OSD collection with AdvertisementID \"{advertisementId}\" failed: {ex.Message}");
-                this.WriteLogMessage(SeverityTypes.Error, $"Full Stack Trace: {ex.StackTrace}");                
-                return SoapResponseHelper.Failure<object>(ex.Message);
-            }
-        }
+        // RemoveComputerFromOSDCollection removed - duplicate of RemoveFromOsdCollection.
+        // Use RemoveFromOsdCollection instead.
 
 
         [WebMethod(Description = "Creates an USMT association between two computers by their names.")]
@@ -381,6 +371,8 @@
         {
             try
             {
+                ParameterValidator.ValidateComputerName(computerName);
+
                 this.WriteLogMessage(SeverityTypes.Information, $"Delete computer \"{computerName}\".");
                 this._configMgrUtility.DeleteComputerByName(computerName);
                 this.WriteLogMessage(SeverityTypes.Information, $"Successfully deleted computer \"{computerName}\".");               
@@ -411,7 +403,7 @@
                     this._configHandler.GraphUrl,
                     this._configHandler.SecretString))
                 {
-                    // 1. Device-ID ermitteln
+                    // 1. Retrieve device ID
                     this.WriteLogMessage(SeverityTypes.Information, $"Retrieving Intune device id for \"{computerName}\"...");
                     var deviceId = graphUtil.GetIntuneDeviceIdByName(computerName);
 
@@ -423,7 +415,7 @@
 
                     this.WriteLogMessage(SeverityTypes.Information, $"Found Intune device id \"{deviceId}\" for \"{computerName}\". Deleting...");
 
-                    // 2. Löschen
+                    // 2. Delete
                     var deleted = graphUtil.DeleteIntuneDevice(deviceId);
 
                     if (deleted)
@@ -806,7 +798,7 @@
 
                 foreach (var variable in variables)
                 {
-                    this.WriteLogMessage(SeverityTypes.Information, $"Adding a computer variable on computer \"{computerName}\" mit Name \"{variable.Key}\" und Wert \"{variable.Value}\".");
+                    this.WriteLogMessage(SeverityTypes.Information, $"Adding a computer variable on computer \"{computerName}\" with name \"{variable.Key}\" and value \"{variable.Value}\".");
                     if (string.IsNullOrEmpty(variable.Value))
                     {
                         this._configMgrUtility.AddComputerVariableNewComputer(computerName, variable.Key, " ");
@@ -815,7 +807,7 @@
                     {
                         this._configMgrUtility.AddComputerVariableNewComputer(computerName, variable.Key, variable.Value);
                     }
-                    this.WriteLogMessage(SeverityTypes.Information, $"Successfully added computer variable on computer \"{computerName}\" mit Name \"{variable.Key}\" und Wert \"{variable.Value}\".");
+                    this.WriteLogMessage(SeverityTypes.Information, $"Successfully added computer variable on computer \"{computerName}\" with name \"{variable.Key}\" and value \"{variable.Value}\".");
                 }
 
                 this.WriteLogMessage(SeverityTypes.Information, $"Successfully replaced all computer variables on computer \"{computerName}\".");

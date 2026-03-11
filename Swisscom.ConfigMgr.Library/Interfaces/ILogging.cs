@@ -26,12 +26,12 @@ namespace Swisscom.ConfigMgr.Library.Interfaces
         /// Gets or sets the maximum number of log files to retain.
         /// Older files will be deleted when this limit is exceeded.
         /// </summary>
-        int MaxLogFiles { get; set; } // Neue Eigenschaft
+        int MaxLogFiles { get; set; }
 
         /// <summary>
         /// Gets or sets the global logging level.
         /// </summary>
-        LoggingLevels LoggingLevel { get; set; } // Hinzugefügt
+        LoggingLevels LoggingLevel { get; set; }
 
         /// <summary>
         /// Writes a message into a log file.

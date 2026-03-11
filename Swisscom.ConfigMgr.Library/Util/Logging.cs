@@ -18,8 +18,8 @@
         {
             var dateTime = ManagementDateTimeConverter.ToDmtfDateTime(DateTime.Now);
             this.UtcOffset = dateTime.Substring(21, dateTime.Length - 21);
-            this.MaxSize = 1024 * 1024 * 10; // Setze auf 10MB, wie gefordert
-            this.MaxLogFiles = 10; // Standard: 10 Logfiles
+            this.MaxSize = 1024 * 1024 * 10; // Default: 10MB
+            this.MaxLogFiles = 10; // Default: 10 log files
             this.LoggingLevel = LoggingLevels.ErrorOnly;
         }
         public static Logging Instance

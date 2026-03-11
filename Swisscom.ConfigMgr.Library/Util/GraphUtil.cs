@@ -17,8 +17,8 @@ namespace Swisscom.ConfigMgr.Library.Util
 {
     public class GraphUtil : IDisposable
     {
-        //private readonly string[] scopes;
-        //private GraphServiceClient _graphClient = null;
+        private static IConfidentialClientApplication _msalApp;
+        private static readonly object _msalLock = new object();
 
         private readonly HttpClient _httpClient = null;
         private readonly string _token = string.Empty;
@@ -57,8 +57,10 @@ namespace Swisscom.ConfigMgr.Library.Util
 
             this._httpClient = new HttpClient();
             this._httpClient.BaseAddress = new Uri(this.GraphUrl);
-            this._token = Task.Run<string>(async () => await this.GetAccessToken(this.TenantId, this.AppId, this.SecretString)).Result;
-
+            this._token = this.GetAccessToken(this.TenantId, this.AppId, this.SecretString)
+                .ConfigureAwait(false)
+                .GetAwaiter()
+                .GetResult();
         }
 
         ~ GraphUtil()
@@ -161,12 +163,12 @@ namespace Swisscom.ConfigMgr.Library.Util
 
             if (device != null)
             {
-                // Typische Co-Management Erkennung (Enum-Prüfung!)
+                // Co-Management detection via ManagementAgent enum
                 if (device.ManagementAgent == ManagementAgentType.ConfigurationManagerClientMdm)
                 {
                     return true;
                 }
-                // Alternativ ergänzend mit EnrollmentType prüfen
+                // Additionally check via DeviceEnrollmentType
                 if (device.DeviceEnrollmentType == DeviceEnrollmentType.WindowsCoManagement)
                 {
                     return true;
@@ -180,7 +182,7 @@ namespace Swisscom.ConfigMgr.Library.Util
         {
             var retVal = false;
 
-            // 1. Kategorie-ID ermitteln (analog PowerShell $catQuery)
+            // 1. Retrieve category ID
             var catRequest = this.GetWebRequest(WebMethod.Get, "deviceManagement/deviceCategories?$select=id,displayName");
             var catContent = this.GetResponse(catRequest);
 
@@ -190,11 +192,11 @@ namespace Swisscom.ConfigMgr.Library.Util
             if (category == null)
                 throw new InvalidOperationException($"Device Category '{deviceCategoryName}' not found in Intune!");
 
-            // 2. Setzen der Device Category am Managed Device
+            // 2. Set the Device Category on the Managed Device
             var putEndpoint = $"deviceManagement/managedDevices/{deviceId}/deviceCategory/$ref";
             var putRequest = this.GetWebRequest(WebMethod.Put, putEndpoint);
 
-            // Hier: @odata.id-Body auf das Category-Objekt setzen
+            // Set @odata.id body to reference the Category object
             var body = "{ \"@odata.id\": \"" + this.GraphUrl + "deviceManagement/deviceCategories/" + category.Id + "\"}";
             var encoding = new System.Text.ASCIIEncoding();
             byte[] data = encoding.GetBytes(body);
@@ -208,7 +210,7 @@ namespace Swisscom.ConfigMgr.Library.Util
                 }
 
                 var putContent = this.GetResponse(putRequest);
-                // Laut Doku/Erfahrung gibt der Endpoint meist einen leeren Body zurück bei Erfolg
+                // The endpoint typically returns an empty body on success
                 if (string.IsNullOrEmpty(putContent)) retVal = true;
             }
             catch (WebException ex)
@@ -216,7 +218,7 @@ namespace Swisscom.ConfigMgr.Library.Util
                 if (ex.Response is HttpWebResponse errorResponse &&
                     errorResponse.StatusCode == HttpStatusCode.NotFound)
                 {
-                    retVal = false; // Gerät oder Kategorie nicht gefunden
+                    retVal = false; // Device or category not found
                 }
                 else
                 {
@@ -461,16 +463,30 @@ namespace Swisscom.ConfigMgr.Library.Util
 
         private async Task<string> GetAccessToken(string tenantId, string clientId, string clientSecret)
         {
-            var builder = ConfidentialClientApplicationBuilder
-                .Create(clientId)
-                .WithClientSecret(clientSecret)
-                .WithTenantId(tenantId)
-                .WithRedirectUri("http://localhost/")
-                .Build();
-            
-            var acquiredTokenResult = builder.AcquireTokenForClient(new List<string> { "https://graph.microsoft.com/.default" });
-            var tokenResult = await acquiredTokenResult.ExecuteAsync();
+            var app = GetOrCreateMsalApp(tenantId, clientId, clientSecret);
+            var scopes = new[] { "https://graph.microsoft.com/.default" };
+            var tokenResult = await app.AcquireTokenForClient(scopes).ExecuteAsync().ConfigureAwait(false);
             return tokenResult.AccessToken;
+        }
+
+        private static IConfidentialClientApplication GetOrCreateMsalApp(string tenantId, string clientId, string clientSecret)
+        {
+            if (_msalApp != null)
+                return _msalApp;
+
+            lock (_msalLock)
+            {
+                if (_msalApp != null)
+                    return _msalApp;
+
+                _msalApp = ConfidentialClientApplicationBuilder
+                    .Create(clientId)
+                    .WithClientSecret(clientSecret)
+                    .WithTenantId(tenantId)
+                    .Build();
+
+                return _msalApp;
+            }
         }
     }
 }

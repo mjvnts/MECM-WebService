@@ -254,6 +254,7 @@
       <DependentUpon>Global.asax</DependentUpon>
     </Compile>
     <Compile Include="Helpers\GenericSoapResponse.cs" />
+    <Compile Include="Helpers\ParameterValidator.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Security\SecurityHandler.cs" />
     <Compile Include="Security\TimestampValidationExtension.cs" />

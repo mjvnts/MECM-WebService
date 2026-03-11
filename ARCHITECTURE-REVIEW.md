@@ -669,7 +669,7 @@ app.Run();
 11. Extract the repetitive try/catch/log pattern into a reusable decorator
 
 ### Do Later (Architecture)
-12. Split the Library into focused projects
+12. Merge Library into single WebService project (see Section 8 below)
 13. Create ASP.NET Core Web API project
 14. Implement DI container
 15. Add REST endpoints with proper routing
@@ -677,3 +677,166 @@ app.Run();
 17. Build optional management UI
 18. Add health checks and structured logging
 19. Set up parallel deployment for backward compatibility
+
+---
+
+## 8. Single-Project Restructuring Plan
+
+### Updated Goal
+Instead of splitting the Library into multiple projects, all functionality should be consolidated into a **single WebService project**. The separate `Swisscom.ConfigMgr.Library` project will be removed.
+
+### Library Usage Analysis
+
+#### Directly Used by WebService (5 classes - KEEP)
+| Class | Purpose |
+|---|---|
+| `ConfigMgrUtility.cs` | Core SCCM/ConfigMgr WMI operations |
+| `ActiveDirectory.cs` | Active Directory LDAP operations |
+| `GraphUtil.cs` | Microsoft Graph API (Intune + Entra ID) |
+| `Logging.cs` | Singleton file-based CMTrace logger |
+| `ScsCrypto.cs` | AES encryption/decryption |
+
+#### Transitive Dependencies (17 classes - KEEP)
+Used by `ConfigMgrUtility` internally:
+- `SmsAdvertisement`, `SmsApplication`, `SmsApplicationAssignment`, `SmsApplicationBase`
+- `SmsApprovalRequest`, `SmsAssignmentBase`, `SmsClient`, `SmsCollection`
+- `SmsFolder`, `SmsPackage`, `SmsResource`, `SmsScheduleToken`
+- `SmsSite`, `SmsTaskSequence`, `SmsTaskSequenceStep`, `SmsUser`, `SmsVariables`
+- Interfaces: `ILogging`, `ISmsBaseClass`
+
+#### Dead Code (13 classes - REMOVE)
+**Management Classes (never instantiated):**
+- `SmsApplicationInfo.cs`
+- `SmsCollectionRule.cs`, `SmsCollectionRuleDirect.cs`, `SmsCollectionRuleQuery.cs`
+- `SmsTaskSequenceAction.cs`, `SmsTaskSequenceGroup.cs`
+- `SmsTaskSequenceInstallApplication.cs`, `SmsTaskSequenceInstallSoftware.cs`
+
+**Utility Classes (never referenced):**
+- `AuthenticationHelper.cs` (empty class)
+- `ScsSemaphore.cs`
+- `ScsServiceTextWriterTraceListener.cs`
+- `TaskSequence.cs`
+- `Utility.cs`
+
+### Proposed New Project Structure
+
+```
+src/
+└── Swisscom.ConfigMgr.WebService/
+    ├── Swisscom.ConfigMgr.WebService.csproj
+    ├── Web.config
+    ├── Global.asax / Global.asax.cs
+    │
+    ├── ConfigMgrWebSvc.asmx                    # WebService entry point
+    ├── ConfigMgrWebSvc.asmx.cs                 # WebMethods (to be split later into controllers)
+    │
+    ├── Config/
+    │   ├── ConfigHandler.cs                    # From WebSvc.Encrypted (keep as-is)
+    │   └── ConfigMgrWebSvcConfigSection.cs     # From WebSvc.Encrypted (keep as-is)
+    │
+    ├── Services/
+    │   ├── ConfigMgrService.cs                 # From Library: ConfigMgrUtility.cs (renamed)
+    │   ├── ActiveDirectoryService.cs           # From Library: ActiveDirectory.cs (renamed)
+    │   └── GraphService.cs                     # From Library: GraphUtil.cs (renamed)
+    │
+    ├── Services/ConfigMgr/                     # SMS WMI wrapper classes
+    │   ├── SmsAdvertisement.cs
+    │   ├── SmsApplication.cs
+    │   ├── SmsApplicationAssignment.cs
+    │   ├── SmsApplicationBase.cs
+    │   ├── SmsApprovalRequest.cs
+    │   ├── SmsAssignmentBase.cs
+    │   ├── SmsClient.cs
+    │   ├── SmsCollection.cs
+    │   ├── SmsFolder.cs
+    │   ├── SmsPackage.cs
+    │   ├── SmsResource.cs
+    │   ├── SmsScheduleToken.cs
+    │   ├── SmsSite.cs
+    │   ├── SmsTaskSequence.cs
+    │   ├── SmsTaskSequenceStep.cs
+    │   ├── SmsUser.cs
+    │   └── SmsVariables.cs
+    │
+    ├── Helpers/
+    │   ├── GenericSoapResponse.cs              # From WebSvc.Encrypted (keep as-is)
+    │   └── ParameterValidator.cs               # New: input validation
+    │
+    ├── Security/
+    │   ├── SecurityHandler.cs                  # From WebSvc.Encrypted (keep as-is)
+    │   ├── TimestampValidationExtension.cs     # From WebSvc.Encrypted (keep as-is)
+    │   ├── TransportSecurityExtension.cs       # From WebSvc.Encrypted (keep as-is)
+    │   └── CryptoService.cs                    # From Library: ScsCrypto.cs (renamed)
+    │
+    ├── Infrastructure/
+    │   ├── Logging.cs                          # From Library: Logging.cs
+    │   ├── ILogging.cs                         # From Library: ILogging.cs
+    │   └── ISmsBaseClass.cs                    # From Library: ISmsBaseClass.cs
+    │
+    └── Resources/
+        ├── AdminUI.WqlQueryEngine.dll          # From Library: Resources/
+        ├── microsoft.configurationmanagement.managementprovider.dll
+        └── PackageXml-Template.xml
+```
+
+### Migration Steps
+
+1. **Create new project** `Swisscom.ConfigMgr.WebService` with the structure above
+2. **Copy classes** from Library into their new locations
+3. **Update namespaces** from `Swisscom.ConfigMgr.Library.*` to `Swisscom.ConfigMgr.WebService.*`
+4. **Merge NuGet packages** from both projects into one `packages.config`
+5. **Copy resource DLLs** into the new project's `Resources/` folder
+6. **Remove** the `Swisscom.ConfigMgr.Library` project reference
+7. **Delete** the `Swisscom.ConfigMgr.Library` folder
+8. **Update** the solution file to remove the Library project
+9. **Verify** compilation and fix any namespace issues
+
+### Class Rename Map
+
+| Old (Library) | New (WebService) | New Location |
+|---|---|---|
+| `ConfigMgrUtility` | `ConfigMgrService` | `Services/ConfigMgrService.cs` |
+| `ActiveDirectory` | `ActiveDirectoryService` | `Services/ActiveDirectoryService.cs` |
+| `GraphUtil` | `GraphService` | `Services/GraphService.cs` |
+| `ScsCrypto` | `CryptoService` | `Security/CryptoService.cs` |
+| `Logging` | `Logging` (keep name) | `Infrastructure/Logging.cs` |
+| `ILogging` | `ILogging` (keep name) | `Infrastructure/ILogging.cs` |
+| `ISmsBaseClass` | `ISmsBaseClass` (keep name) | `Infrastructure/ISmsBaseClass.cs` |
+| All `Sms*` classes | Keep names | `Services/ConfigMgr/` |
+
+### Files to Delete (Dead Code)
+
+```
+Swisscom.ConfigMgr.Library/ManagementClasses/SmsApplicationInfo.cs       # Never used
+Swisscom.ConfigMgr.Library/ManagementClasses/SmsCollectionRule.cs        # Never used
+Swisscom.ConfigMgr.Library/ManagementClasses/SmsCollectionRuleDirect.cs  # Never used
+Swisscom.ConfigMgr.Library/ManagementClasses/SmsCollectionRuleQuery.cs   # Never used
+Swisscom.ConfigMgr.Library/ManagementClasses/SmsTaskSequenceAction.cs    # Never used
+Swisscom.ConfigMgr.Library/ManagementClasses/SmsTaskSequenceGroup.cs     # Never used
+Swisscom.ConfigMgr.Library/ManagementClasses/SmsTaskSequenceInstallApplication.cs  # Never used
+Swisscom.ConfigMgr.Library/ManagementClasses/SmsTaskSequenceInstallSoftware.cs     # Never used
+Swisscom.ConfigMgr.Library/Util/AuthenticationHelper.cs                  # Empty class
+Swisscom.ConfigMgr.Library/Util/ScsSemaphore.cs                          # Never referenced
+Swisscom.ConfigMgr.Library/Util/ScsServiceTextWriterTraceListener.cs     # Never referenced
+Swisscom.ConfigMgr.Library/Util/TaskSequence.cs                          # Never referenced
+Swisscom.ConfigMgr.Library/Util/Utility.cs                               # Never referenced
+```
+
+### NuGet Package Consolidation
+
+The merged project needs these packages (from both projects):
+- `Azure.Core`, `Azure.Identity`
+- `Microsoft.Bcl.AsyncInterfaces`
+- `Microsoft.ConfigurationManagement.Messaging`
+- `Microsoft.Graph.Beta`, `Microsoft.Graph.Core`
+- `Microsoft.Identity.Client`, `Microsoft.Identity.Client.Extensions.Msal`
+- `Microsoft.IdentityModel.*` packages
+- `Microsoft.Kiota.*` packages
+- `Microsoft.PowerShell.5.ReferenceAssemblies`
+- `Newtonsoft.Json`
+- `System.*` packages (Buffers, Memory, Net.Http, Text.Json, etc.)
+- `Microsoft.AspNet.WebApi.*`
+- `Microsoft.CodeDom.Providers.DotNetCompilerPlatform`
+- `NETStandard.Library`
+
+The Library's `AdminUI.WqlQueryEngine.dll` and `microsoft.configurationmanagement.managementprovider.dll` must be included as local references in the merged project.

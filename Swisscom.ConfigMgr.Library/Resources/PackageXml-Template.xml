@@ -1,0 +1,58 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Package.XML Version 3.0
+  Copyright 2017 by Swisscom
+  
+  Use #CURRENTDIRECTORY# as a variable for the directory, where the script is located in.
+  Normal environment variables like %TMP% are also supported.
+-->
+<package>
+	<configuration contentPath="" sourceSite="BS2" siteServer="SCBSECMDAP01" distributionPointGroups="BS All Distribution Points">
+		<application name="" manufacturer="" internalVersionName="DAPVersion" internalVersion="" manufacturerVersionName="Version" manufacturerVersion="" language="ML" category="" folderPath="Pilot" startTimeName="StartTime" endTimeName="EndTime" />
+		<logfile path="C:\Windows\AutoInst\AppPackager" />
+		<registry path="Software\Maintenance\Applications" />
+		<collectionProperties inventoryClassName="DAP_Application" uninstallFolder="Applications\Uninstall" installPrefix="I" uninstallPrefix="U" delimiter="_" />
+		<activeDirectory ou="OU=OU-SWGroups,OU=OU-Groups,OU=OU-Mgmt,OU=OU-DAP,OU=OU-BS,DC=bs,DC=ch" preFix="G_SCCM_">
+			<subGroup preFix="G_BD_" ou="OU=OU-Fat,OU=OU-BD,OU=OU-DAP-Application,OU=OU-BS,DC=bs,DC=ch" />
+			<subGroup preFix="G_ED_" ou="OU=OU-Fat,OU=OU-ED,OU=OU-DAP-Application,OU=OU-BS,DC=bs,DC=ch" />
+			<subGroup preFix="G_FD_" ou="OU=OU-Fat,OU=OU-FD,OU=OU-DAP-Application,OU=OU-BS,DC=bs,DC=ch" />
+			<subGroup preFix="G_GD_" ou="OU=OU-Fat,OU=OU-GD,OU=OU-DAP-Application,OU=OU-BS,DC=bs,DC=ch" />
+			<subGroup preFix="G_GR_" ou="OU=OU-Fat,OU=OU-GR,OU=OU-DAP-Application,OU=OU-BS,DC=bs,DC=ch" />
+			<subGroup preFix="G_JSD_" ou="OU=OU-Fat,OU=OU-JSD,OU=OU-DAP-Application,OU=OU-BS,DC=bs,DC=ch" />
+			<subGroup preFix="G_PD_" ou="OU=OU-Fat,OU=OU-PD,OU=OU-DAP-Application,OU=OU-BS,DC=bs,DC=ch" />
+			<subGroup preFix="G_WSU_" ou="OU=OU-Fat,OU=OU-WSU,OU=OU-DAP-Application,OU=OU-BS,DC=bs,DC=ch" />
+		</activeDirectory>
+		<processTermination />
+		<deployments>
+			<deployment type="User" collection="" required="true" installType="install" approval="false" usePrefix="true" allowRepair="true" limitingCollection="All WorkplaceBS Users and Groups" startTime="01.01.2032 12:00:00" evaluationTime="01.01.2021 22:00:00" useAutoUninstall="true" installFolder="Applications" />
+			<deployment type="Device" collection="" required="true" installType="install" approval="false" usePrefix="false" useDirectMembership="true" allowRepair="true" limitingCollection="All WorkplaceBS Devices" startTime="01.01.2021 12:00:00" evaluationTime="01.01.2021 22:00:00" useAutoUninstall="false" installFolder="Applications\Pilot" />
+		</deployments>
+	</configuration>
+	<install>
+		<pre command='' />
+		<commands>
+			<command name='#CURRENTDIRECTORY#\Deploy-Application.EXE' arguments=' ' />
+		</commands>
+		<post command='' />
+	</install>
+	<uninstall>
+		<pre command='' />
+		<commands>
+			<command name='#CURRENTDIRECTORY#\Deploy-Application.EXE' arguments='uninstall' />
+		</commands>
+		<post command='' />
+	</uninstall>
+	<repair>
+		<pre command='' />
+		<commands>
+			<command name='#CURRENTDIRECTORY#\Deploy-Application.EXE' arguments='uninstall' />
+			<command name='#CURRENTDIRECTORY#\Deploy-Application.EXE' arguments=' ' />
+		</commands>
+		<post command='' />
+	</repair>
+	<knownSuccessCodes>
+		<success code="0" />
+		<success code="1641" />
+		<success code="3010" />
+	</knownSuccessCodes>
+</package>
